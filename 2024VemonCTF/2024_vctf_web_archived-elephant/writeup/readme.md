@@ -1,8 +1,8 @@
-# Archived elephant
+# archived elephant writeup
 
 ### TL;DR
 
-题目改编自去年挖到的一个前台`RCE`，还没公布。由于最新版本的利用过程太过`ctf`了所以理所当然被制作成了一个`ctf`题。
+题目改编自去年挖到的一个前台`RCE`，洞还没修。由于最新版本的利用过程太过`ctf`了所以理所当然被制作成了一个`ctf`题。
 
 拟投稿于今年的`venom`招新赛。
 
@@ -67,7 +67,7 @@ public String upload(HttpServletRequest request, Model model, HttpSession sessio
 
 #### ueditor存在JSON注入隐患
 
-`ueditors`已不在维护，但调用`ActionEnter#exec()`确实存在安全隐患。~~大概扫了一眼国内的`CMS`引入`ueditor`还挺多的，师父们可以看看有哪些`cms`调用了`ueditor`并且进行不安全编码规范导致漏洞触发，没准能刷点`0day`。~~
+`ueditors`已不在维护，但调用`ActionEnter#exec()`确实会存在安全隐患，因为官方给的标准用法就是`new ActionEnter(request, rootPath).exec()`，如果想修改一下返回的属性还是会用`JSON`库解析一下，此时可能导致安全问题。~~大概扫了一眼国内的`CMS`引入`ueditor`还挺多的，师父们可以看看有哪些`cms`调用了`ueditor`并且进行不安全编码规范导致漏洞触发，没准能刷点`0day`。~~
 
 ![1708169914163](https://squirt1e.oss-cn-beijing.aliyuncs.com/blog/1708169914163.png)
 
@@ -82,13 +82,13 @@ public String upload(HttpServletRequest request, Model model, HttpSession sessio
 
 先看`Uploader#doExec`的逻辑，这里会根据是否`base64`调用不同类的`save`方法。当操作为`UPLOAD_FILE`时配置类`ConfigManager`的`isBase64`为`false`，所以`Uploader#doExec`触发`BinaryUploader#save`。
 ```java
-		case ActionMap.UPLOAD_FILE:
-			conf.put("isBase64", "false");
-			conf.put("maxSize", this.jsonConfig.getLong("fileMaxSize"));
-			conf.put("allowFiles", this.getArray("fileAllowFiles"));
-			conf.put("fieldName", this.jsonConfig.getString("fileFieldName"));
-			savePath = this.jsonConfig.getString("filePathFormat");
-			break;
+case ActionMap.UPLOAD_FILE:
+    conf.put("isBase64", "false");
+    conf.put("maxSize", this.jsonConfig.getLong("fileMaxSize"));
+    conf.put("allowFiles", this.getArray("fileAllowFiles"));
+    conf.put("fieldName", this.jsonConfig.getString("fileFieldName"));
+    savePath = this.jsonConfig.getString("filePathFormat");
+    break;
 ```
 
 ![Alt text](https://squirt1e.oss-cn-beijing.aliyuncs.com/blog/image-3.png)
@@ -102,7 +102,7 @@ public String upload(HttpServletRequest request, Model model, HttpSession sessio
 ![Alt text](https://squirt1e.oss-cn-beijing.aliyuncs.com/blog/1694868670291.png)
 
 
-发现以上函数调用可以通过`/ueditor`路由触发，其中返回的`json`为恶意字符串，最终把`json`传给了`uploadService#uploadHandle`。因此我们可以看看`uplodaHandle`方法干了啥，使得一个小小的`JSON`注入隐患造成远程命令执行。
+发现以上函数调用可以通过`/ueditor`路由触发，其中返回的`json`为恶意字符串，最终把`json`传给了`uploadService#uploadHandle`。因此我们可以看看`uplodaHandle`方法干了啥，使得一个`JSON`注入隐患最终造成远程命令执行。
 
 ![image-20240217194225885](https://squirt1e.oss-cn-beijing.aliyuncs.com/blog/image-20240217194225885.png)
 
@@ -149,7 +149,7 @@ public String upload(HttpServletRequest request, Model model, HttpSession sessio
 }
 ```
 
-出了属性开头的坑之外还有好多坑，实际上`ueditor Json injection`那里大概看了没多久就审出来了，但是利用卡了我一天。。
+除了属性开头的坑之外还有好多坑，实际上`ueditor Json injection`那里大概看了没多久就审出来了，但是利用卡了我一天。。
 
 第一点是`fj`调用构造函数存在随机性，而`WriterOutputStream`恰好有一堆很相似的构造函数，所以在构造的时候需要注意`WriterOutputStream`构造方法的第二个属性是`charset`或`charsetName`，如果属性名称错误会报`Exception in thread "main" com.alibaba.fastjson.JSONException: create instance error, null, public`。
 
@@ -163,7 +163,7 @@ public WriterOutputStream(Writer writer, String charsetName, int bufferSize, boo
 }
 ```
 
-第二点是该方法（应该）仅支持绝对路径文件写入，`MiscCodec`中限制了相对路径写入。不过题目应该会给`docker`所以选手到时候看`docker`里的模板路径就可以了。如果难度不够的话这部分可以当个考点。
+第二点是该方法（应该）仅支持绝对路径文件写入，`MiscCodec`中限制了相对路径写入。不过题目应该会给`docker`所以选手到时候看`docker`里的模板路径就可以了。如果难度不够的话绝对路径这部分可以当个考点。
 
 ```java
 else if (clazz != InetAddress.class && clazz != Inet4Address.class && clazz != Inet6Address.class) {
@@ -175,7 +175,7 @@ else if (clazz != InetAddress.class && clazz != Inet4Address.class && clazz != I
     }
 ```
 
-第三点是写不进去双引号`"`，结合`beetl`语法用`parameter.a`就能绕过了。后续在访问恶意模板时加个参数`?a`即可。
+第三点是写不进去双引号`"`，分号`;`之类的字符。这部分不是任意文件写这条`gadget`的问题，而是因为`ueditor`这里的`JSON`注入是个`http`请求头中的`filename`注入，所以写一些奇怪字符会导致`http`请求出现一些问题。结合`beetl`语法用`parameter.a`就能绕过了。后续在访问恶意模板时加个参数`?a`即可。
 
 #### beetl模板RCE
 
@@ -281,8 +281,15 @@ ${@java.beans.Beans.instantiate(null,parameter.a).parseExpression(parameter.b).g
 
 ![1708172558206](https://squirt1e.oss-cn-beijing.aliyuncs.com/blog/1708172558206.png)
 
-删减了这么多代码还是降了不少难度，并且这里只考了`JSON`注入的一个利用，同名属性覆盖没有考。如果以`RWCTF`的题目难度分类标准的话顶多算`baby`吧:(
+删减了这么多代码还是降了不少难度，并且这里只考了`JSON`注入的一个利用，同名属性覆盖没有考。
 
 #### flag
 
-`flag{oh_m3_uedit0r_an3_maybe_y0u_can_f1nd_s0me_0day}`
+flag{oh_m3_ued1t0r_an3_may_be_y0u_can_f1nd_s0m3_0day}
+
+#### 非预期
+
+“随便打打”师傅在比赛过程中做出了这道题，用的是`fastjson mysql`任意文件读出来的`flag`，我觉得只要审出来`json`拼接就算是预期吧。另外其实任意文件写`jsp`也可以（属实是小丑了），不过由于挖的那个`day`是`jfinal`框架写的，`filter`过滤了`jsp`，不过也有办法绕过就是了。
+关于`jsp`写`webshell`需要分号`;`的问题（写不了分号的原因在上面提到了），我当时是没有解决所以这里预期解是覆盖`.btl`模版。现在想想应该有方法解决，之前读`RFC`标准的时候好像看到有可以`url`编码请求头的操作。
+
+第一次在公开比赛里出题，确实有很多欠考虑的地方。另外这种任意文件上传的利用肯定有很多解法，在这里就抛砖引玉了。
