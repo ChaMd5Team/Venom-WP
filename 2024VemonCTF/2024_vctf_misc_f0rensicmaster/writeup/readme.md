@@ -67,9 +67,7 @@
 
 下载后无法正常打开，
 
-结合题目提示中的vc\_passwd，推测是VeraCrypt加密容器，
-
-挂载之
+观察文件大小刚好为3mb 推测为veracrypt加密容器 ，结合提示的key挂载 
 
 ![](image/image_Zg3UVBt_C2.png)
 
